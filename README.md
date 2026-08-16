@@ -1,110 +1,100 @@
-# Esports-PingShield Operations Center
+# \u26a1 Esports-PingShield
 
-A simulated network-operations dashboard for an esports LAN arena: live
-endpoint latency/jitter/packet-loss monitoring, zone-level topology status,
-and an automated incident-mitigation playbook -- built with Streamlit.
+**Enterprise-style network operations dashboard for esports LAN arena infrastructure.**
+Real-time endpoint monitoring, zone-level topology health, automated incident
+detection, and a scripted mitigation playbook -- built with Streamlit.
 
-**This is a simulation environment.** Telemetry is generated locally with a
-small per-tick random walk to produce a genuinely live-looking feed. No real
-network devices, switches, or tournament traffic are involved -- the sidebar
-says so explicitly, and the "LIVE SIMULATED TELEMETRY" badge is accurate to
-what the app actually does rather than an unqualified "LIVE" claim over
-static numbers.
+> Simulation environment: telemetry is generated locally with a live per-tick
+> random walk to model realistic network behavior. No physical network
+> hardware or live tournament traffic is involved.
+
+---
+
+## Overview
+
+Esports-PingShield models the network operations layer of a competitive
+gaming arena: player stations, a broadcast production booth, and a redundant
+game-server rack, each streaming latency, jitter, and packet-loss telemetry.
+An operator can inject one of several disaster scenarios (DDoS on the
+primary game server, a severed stage switch, broadcast packet loss, arena-wide
+congestion) and watch the dashboard classify affected endpoints, escalate
+zone status, and surface a recommended incident-response runbook in real time.
+
+## Features
+
+- **Live telemetry feed** -- auto-refreshing dashboard with configurable
+  refresh rate, driven by `st.fragment`, not a blocking sleep loop.
+- **Deterministic health classification** -- every endpoint is scored
+  `HEALTHY` / `WARNING` / `CRITICAL` / `UNREACHABLE` from a single set of
+  latency and packet-loss thresholds.
+- **Zone-level topology view** -- Stage Left, Stage Right, Production Booth,
+  and Server Rack each roll up to their worst-case endpoint status.
+- **Scenario injector** -- four disaster scenarios plus a normal-operations
+  baseline, selectable from the sidebar.
+- **Automated mitigation playbook** -- active incidents trigger a scripted
+  SOP with affected systems and required operational actions.
+- **Full telemetry table** -- per-endpoint ping, jitter, and packet loss for
+  every reporting cycle.
 
 ## Architecture
 
 ```
-app.py               # entrypoint: sidebar controls, auto-refresh fragment
-requirements.txt
+app.py               entrypoint -- sidebar controls, auto-refresh fragment
 src/
-    __init__.py
-    config.py          # single source of truth: devices, zones, thresholds, scenarios
-    engine.py          # scenario simulation + classify_status() + worst_status()
-    ui.py              # Streamlit rendering only -- reads engine's status column
+    config.py          device topology, zones, thresholds, scenario definitions
+    engine.py           scenario simulation, health classification
+    ui.py               Streamlit rendering components
 tests/
-    __init__.py
-    test_config.py      # consistency guarantees (zones/devices can't drift apart)
-    test_engine.py       # scenario correctness + status classification
+    test_config.py       topology and threshold consistency checks
+    test_engine.py        scenario and classification correctness
 ```
 
-## What changed from the first draft, and why
+The system is built around a single-source-of-truth principle: device
+topology, zone membership, and severity thresholds are all defined once in
+`config.py`. The classification engine (`engine.py`) is the only place that
+turns raw metrics into a status, and every rendering component consumes that
+status rather than re-deriving its own thresholds -- so the topology grid,
+the KPI cards, and the latency chart can never disagree with each other about
+what counts as a problem.
 
-- **One classify_status() function.** Previously the `ping > 30` threshold
-  was hardcoded in four different places (`engine.py`, and three spots across
-  `ui.py`/`app.py`) that had to be kept in sync by hand. Now every layer reads
-  `engine.classify_status()` and the `status` column it produces -- change
-  the threshold once in `config.py` and every view updates together.
-- **Scenario dispatch by key, not by substring-matching a label string.**
-  `"Scenario A" in scenario_name` breaks the moment the label text changes.
-  `app.py` now passes the stable dict key (`"SERVER_DDOS"`, etc.) straight
-  through to `engine.py`.
-- **Zone -> device mapping is derived, not duplicated.** `ui.py` used to hold
-  its own hand-typed copy of which device IDs belong to which zone, separate
-  from `config.BASE_DEVICES`. `DEVICES_BY_ZONE` is now built once from
-  `BASE_DEVICES` in `config.py`, so it can't drift out of sync.
-- **A severed link is UNREACHABLE, not "0.0 jitter".** The Stage Right
-  switch-failure scenario previously reported `jitter = 0.0` for a fully
-  down link, which reads as "perfectly stable" rather than "not there."
-  It's now a distinct `UNREACHABLE` status with `ping`/`jitter` reported as
-  genuinely missing (`None` / "N/A" / "OFFLINE" in the chart), ranked worse
-  than `CRITICAL` by `worst_status()`.
-- **The "LIVE" badge is now true.** The dashboard previously rendered a
-  static snapshot once per widget interaction behind a "LIVE TOURNAMENT
-  FEED" label. `st.fragment(run_every=refresh_rate)` now reruns the
-  dashboard on an interval with real per-tick noise, and the badge text was
-  changed to make clear it's simulated telemetry, not real match traffic.
-- **Error handling.** `process_scenario()` raises a typed `ScenarioError` on
-  an unrecognised scenario key, caught at the UI boundary and shown via
-  `st.error` instead of crashing the whole app or silently rendering the
-  wrong scenario.
-- **Tests.** 23 unit tests across `test_config.py` and `test_engine.py`,
-  including regression tests for the exact two bugs above (threshold
-  duplication and the zero-jitter-on-a-dead-link inconsistency).
+A fully severed link is modeled as a distinct `UNREACHABLE` state rather than
+a zero-value reading, since a dropped connection and a merely slow one call
+for different operational responses.
 
-## Running locally
+## Tech Stack
+
+- **Streamlit** -- application framework and UI
+- **Pandas** -- telemetry data handling
+- **Plotly** -- latency visualization
+- **Pytest** -- unit testing
+
+## Getting Started
 
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Running tests
+## Testing
 
 ```bash
-pip install -r requirements.txt
 pytest -v
 ```
 
-`engine.py` and `config.py` import nothing from Streamlit, so the test suite
-runs without a Streamlit runtime.
+Business logic (`src/config.py`, `src/engine.py`) has no dependency on
+Streamlit, so the full test suite runs independently of the UI layer.
 
-## Deploying to Streamlit Cloud
+## Target Roles
 
-**Push with `git push` (from a real git checkout) or GitHub Desktop --
-not the web "Add file > Upload files" drag-and-drop button.** The web
-uploader has a known failure mode where nested folders (like `src/`) get
-flattened or dropped silently, which produces exactly
-`ModuleNotFoundError: No module named 'src'` at runtime even though every
-file compiled fine locally.
+This project was built to demonstrate operational monitoring, incident
+classification, and network-fault simulation relevant to:
 
-Correct sequence:
+- Network Operations Engineer
+- Network Engineer
+- Technical Operations Engineer
+- Network Security Engineer
+- Esports / Event Technology Engineer
 
-```bash
-git init
-git add .
-git commit -m "Esports-PingShield operations dashboard"
-git branch -M main
-git remote add origin <your-empty-github-repo-url>
-git push -u origin main
-```
+## License
 
-Then on [share.streamlit.io](https://share.streamlit.io), point the app at
-`app.py` in the repo root. Before deploying, open the repo on GitHub's file
-browser and confirm you can see `src/config.py`, `src/engine.py`, and
-`src/ui.py` as actual files inside a real `src` folder -- if the file tree
-shows `src` as a folder icon you can click into, the push worked correctly.
-
-`app.py` also inserts its own directory onto `sys.path` at startup as a
-defensive measure against working-directory differences -- but that only
-helps if `src/` actually exists in the deployed repo; it can't recover a
-folder that never made it into the push.
+MIT
