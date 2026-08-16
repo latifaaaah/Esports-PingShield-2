@@ -1,4 +1,4 @@
-# \u26a1 Esports-PingShield
+#  Esports-PingShield
 
 **Enterprise-style network operations dashboard for esports LAN arena infrastructure.**
 Real-time endpoint monitoring, zone-level topology health, automated incident
